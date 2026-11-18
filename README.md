@@ -98,9 +98,11 @@ Teste manual: entre em `/login` com um usuário novo, cadastre um ativo, adicion
 
 ## O que aprendi
 
-<!-- TODO antes de entregar: reescreva esta seção com as suas próprias palavras. -->
-
-- Como organizar um projeto Axum em módulos (`routes`, `repository`, `auth`, `models`, `validation`) e usar *extractors* (`FromRequestParts`) para injetar o repositório e a pessoa autenticada.
-- Como o SQLx combina consultas verificadas em tempo de compilação (`query_as!`) com consultas em tempo de execução (`query_as` + `FromRow`) quando há `JOIN`.
-- Como `Result` e um enum de erros (`AppError`) permitem transformar falhas de validação em respostas HTTP ou em mensagens na página.
-- Como usar `#[sqlx::test]` para testar o repositório com um banco isolado por teste.
+- **Organizar uma aplicação Axum em camadas.** Separei rotas, repositório, autenticação, modelos e validação em módulos. Com *extractors* (`FromRequestParts`), cada handler declara o que precisa (`Repository`, `User`, `Option<User>`, `Admin`) e o Axum entrega pronto. Assim a regra de "estar logado" fica num lugar só, e não repetida em cada rota.
+- **O SQLx checa o SQL na compilação, e isso tem um custo.** As macros `query_as!` conferem cada consulta contra o banco real, então um erro de digitação numa coluna aparece no `cargo build`, não em produção. Em compensação, o banco precisa estar no ar e com as migrations aplicadas antes de compilar. Descobri isso quando o build falhou com o banco desligado. Na consulta com `JOIN` da carteira usei `query_as` com `FromRow`, que é verificada só em tempo de execução.
+- **O banco é a última linha de defesa.** A tabela `holdings` tem `UNIQUE (user_id, asset_id)`, `CHECK (quantity > 0)` e chaves estrangeiras. O `UNIQUE` permitiu fazer "adicionar ou atualizar" numa única consulta com `ON CONFLICT ... DO UPDATE`. Aprendi a transformar violações do banco (`is_unique_violation`, `is_foreign_key_violation`) em erros que fazem sentido para quem usa o sistema, como 409 para nome de ativo repetido em vez de um 500 genérico.
+- **Um enum de erros deixa o tratamento explícito.** Com `AppError` e `IntoResponse`, cada falha vira um status HTTP definido num só lugar. Validar a entrada antes de chegar ao banco (`src/validation.rs`) e mostrar a mensagem na própria página deixou a experiência bem melhor do que devolver JSON cru.
+- **Autenticação sem guardar senha.** A senha é salva só como hash (`password-auth`), e a sessão é um JWT num cookie `HttpOnly` com `SameSite=Lax`. No logout, o cookie precisa ser removido com o mesmo `Path` com que foi criado. O Askama ajuda na segurança porque escapa o HTML dos templates automaticamente.
+- **Testar com banco de verdade.** O `#[sqlx::test]` cria um banco temporário para cada teste e aplica as migrations, o que me deixou testar o isolamento entre usuários (uma pessoa não consegue remover a posição de outra). O `insta` guarda snapshots das respostas da API.
+- **Dependências e infraestrutura também quebram o build.** O `jwt-simple` vinha por padrão com o BoringSSL, que exige `cmake` no Windows; ativar a feature `pure-rust` resolveu. Já o Postgres 18 mudou o lugar onde a imagem Docker guarda os dados, e o volume do `compose.yml` precisou mudar junto. Ler a documentação das *features* do crate e o entrypoint da imagem foi o que resolveu os dois casos.
+- **O que eu faria diferente.** Usaria um tipo decimal (`NUMERIC` + `rust_decimal`) para valores em dinheiro em vez de `f64`, e tiraria o segredo do JWT e a chave de admin do código, passando a lê-los de variáveis de ambiente.
