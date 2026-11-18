@@ -9,7 +9,8 @@ axum = { version = "0.8.8", features = ["macros"] }
 axum-extra = { version = "0.12.5", features = ["cookie-signed"] }
 color-eyre = "0.6.5"
 dotenvy = "0.15.7"
-jwt-simple = "0.12.14"
+# "pure-rust" evita compilar o BoringSSL (exigiria cmake e compilador C, o que quebra o build no Windows).
+jwt-simple = { version = "0.12.14", default-features = false, features = ["pure-rust"] }
 password-auth = "1.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

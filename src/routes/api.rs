@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 use crate::{
     app::AppState, auth::admin::Admin, error::AppError, models::Asset, repository::Repository,
+    validation,
 };
 
 pub fn router() -> Router<AppState> {
@@ -30,9 +31,13 @@ async fn create_asset(
     repostiory: Repository,
     Json(request): Json<CreateAssetRequest>,
 ) -> Result<Json<Asset>, AppError> {
+    let name = validation::asset_name(&request.name)?;
+    let unit_value = validation::positive_number(request.unit_value, "O valor unitário")?;
+
     let new_asset = repostiory
-        .create_asset(request.name, request.unit_value)
-        .await?;
+        .create_asset(name, unit_value)
+        .await
+        .map_err(AppError::from_asset_write)?;
 
     Ok(Json(new_asset))
 }
@@ -50,9 +55,20 @@ async fn update_asset(
     repostiory: Repository,
     Json(request): Json<UpdateAssetRequest>,
 ) -> Result<Json<Asset>, AppError> {
+    let name = request
+        .name
+        .as_deref()
+        .map(validation::asset_name)
+        .transpose()?;
+    let unit_value = request
+        .unit_value
+        .map(|value| validation::positive_number(value, "O valor unitário"))
+        .transpose()?;
+
     match repostiory
-        .update_asset(request.id, request.name, request.unit_value)
-        .await?
+        .update_asset(request.id, name, unit_value)
+        .await
+        .map_err(AppError::from_asset_write)?
     {
         Some(updated_asset) => Ok(Json(updated_asset)),
         None => Err(AppError::AssetDoesNotExist),
@@ -80,6 +96,17 @@ mod tests {
         assert_eq!(new_asset.unit_value, 10.0);
 
         insta::assert_json_snapshot!(new_asset);
+    }
+
+    #[sqlx::test(fixtures("bitcoin_asset"))]
+    async fn test_create_asset_with_taken_name_is_conflict(db: PgPool) {
+        let request = CreateAssetRequest {
+            name: "Bitcoin".to_string(),
+            unit_value: 10.0,
+        };
+        let result = create_asset(Admin, db.into(), Json(request)).await;
+
+        assert!(matches!(result, Err(AppError::AssetNameTaken)));
     }
 
     #[sqlx::test(fixtures("bitcoin_asset"))]

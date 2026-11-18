@@ -18,6 +18,9 @@ impl AppState {
         let database_url = std::env::var("DATABASE_URL")?;
         let db = PgPool::connect(&database_url).await?;
 
+        // Aplica as migrations pendentes ao iniciar, sem precisar do sqlx-cli.
+        sqlx::migrate!().run(&db).await?;
+
         Ok(Self { db })
     }
 }
